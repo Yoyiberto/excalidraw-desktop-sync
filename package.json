@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "npm --prefix app run dev",
     "build": "npm --prefix app run build",
+    "tauri": "npm --prefix app run tauri --",
+    "tauri:dev": "npm --prefix app run tauri dev",
+    "tauri:build": "npm --prefix app run tauri build",
     "worker:dev": "npm --prefix worker run dev",
     "worker:deploy": "npm --prefix worker run deploy",
-    "worker:test": "npm --prefix worker run test",
-    "tauri:dev": "npm --prefix app run tauri dev",
-    "tauri:build": "npm --prefix app run tauri build"
+    "worker:test": "npm --prefix worker run test"
   }
 }

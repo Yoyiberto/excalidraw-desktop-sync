@@ -13,7 +13,7 @@ export const syncService = {
   },
 
   cleanUrl(url: string): string {
-    return url.replace(/\/+$/, "");
+    return url.trim().replace(/\/+$/, "");
   },
 
   async testConnection(config: SyncConfig): Promise<{ ok: boolean; message: string }> {
