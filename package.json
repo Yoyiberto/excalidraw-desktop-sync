@@ -1,0 +1,15 @@
+{
+  "name": "excalidraw-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Excalidraw Desktop + Cloudflare D1/R2 Sync",
+  "scripts": {
+    "dev": "npm --prefix app run dev",
+    "build": "npm --prefix app run build",
+    "worker:dev": "npm --prefix worker run dev",
+    "worker:deploy": "npm --prefix worker run deploy",
+    "worker:test": "npm --prefix worker run test",
+    "tauri:dev": "npm --prefix app run tauri dev",
+    "tauri:build": "npm --prefix app run tauri build"
+  }
+}

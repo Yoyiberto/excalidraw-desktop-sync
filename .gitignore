@@ -1,0 +1,27 @@
+# Node & dependencies
+node_modules/
+dist/
+build/
+.npm/
+
+# Rust / Tauri
+target/
+src-tauri/target/
+src-tauri/gen/
+
+# Cloudflare & Wrangler
+.wrangler/
+.mf/
+
+# Logs & temp
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment & local files
+.env
+.env.local
+.DS_Store
+Thumbs.db

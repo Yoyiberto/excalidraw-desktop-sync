@@ -1,0 +1,25 @@
+{
+  "name": "draw-sync-worker",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker D1/R2 sync backend for Excalidraw Desktop",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:init-local": "wrangler d1 execute draw-db --local --file=./schema.sql",
+    "db:init-remote": "wrangler d1 execute draw-db --remote --file=./schema.sql",
+    "test": "vitest run"
+  },
+  "keywords": ["excalidraw", "cloudflare", "d1", "r2", "sync"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250224.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8",
+    "wrangler": "^3.111.0"
+  },
+  "dependencies": {
+    "hono": "^4.7.2"
+  }
+}
