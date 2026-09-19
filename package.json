@@ -6,9 +6,9 @@
   "scripts": {
     "dev": "npm --prefix app run dev",
     "build": "npm --prefix app run build",
-    "tauri": "npm --prefix app run tauri --",
-    "tauri:dev": "npm --prefix app run tauri dev",
-    "tauri:build": "npm --prefix app run tauri build",
+    "tauri": "ulimit -n 65535 2>/dev/null || true; npm --prefix app run tauri --",
+    "tauri:dev": "ulimit -n 65535 2>/dev/null || true; npm --prefix app run tauri dev",
+    "tauri:build": "ulimit -n 65535 2>/dev/null || true; npm --prefix app run tauri build",
     "worker:dev": "npm --prefix worker run dev",
     "worker:deploy": "npm --prefix worker run deploy",
     "worker:test": "npm --prefix worker run test"
