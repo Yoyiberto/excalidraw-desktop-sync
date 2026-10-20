@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   X,
   Plus,
@@ -10,6 +10,7 @@ import {
   Download,
   Calendar,
   HardDrive,
+  Upload,
 } from "lucide-react";
 import { DrawingMeta } from "../types";
 
@@ -20,6 +21,7 @@ interface DrawingSwitcherProps {
   activeId: string;
   onSelectDrawing: (id: string) => void;
   onNewDrawing: () => void;
+  onImportDrawing: (file: File) => void;
   onRenameDrawing: (id: string, newTitle: string) => void;
   onDuplicateDrawing: (id: string) => void;
   onDeleteDrawing: (id: string) => void;
@@ -33,6 +35,7 @@ export const DrawingSwitcher: React.FC<DrawingSwitcherProps> = ({
   activeId,
   onSelectDrawing,
   onNewDrawing,
+  onImportDrawing,
   onRenameDrawing,
   onDuplicateDrawing,
   onDeleteDrawing,
@@ -41,6 +44,7 @@ export const DrawingSwitcher: React.FC<DrawingSwitcherProps> = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
@@ -107,16 +111,39 @@ export const DrawingSwitcher: React.FC<DrawingSwitcherProps> = ({
 
         {/* Action & Search */}
         <div className="p-3 border-b border-gray-100 flex flex-col gap-2">
-          <button
-            onClick={() => {
-              onNewDrawing();
-              onClose();
+          <input
+            type="file"
+            ref={fileInputRef}
+            accept=".excalidraw,.json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                onImportDrawing(file);
+                onClose();
+              }
             }}
-            className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            New Drawing
-          </button>
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => {
+                onNewDrawing();
+                onClose();
+              }}
+              className="flex items-center justify-center gap-1.5 py-2 px-3 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-lg text-xs font-semibold transition-colors shadow-sm"
+            >
+              <Plus className="w-4 h-4" />
+              New Drawing
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center justify-center gap-1.5 py-2 px-3 bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-gray-700 rounded-lg text-xs font-semibold transition-colors border border-gray-200"
+              title="Import .excalidraw file"
+            >
+              <Upload className="w-4 h-4 text-indigo-600" />
+              Import File
+            </button>
+          </div>
 
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-2.5 text-gray-400" />

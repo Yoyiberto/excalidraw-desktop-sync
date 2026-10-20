@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { HeaderBar } from "./components/HeaderBar";
 import { DrawingSwitcher } from "./components/DrawingSwitcher";
 import { SettingsModal } from "./components/SettingsModal";
-import { ExcalidrawWrapper } from "./components/ExcalidrawWrapper";
+import { ExcalidrawWrapper, InsertImagesFn } from "./components/ExcalidrawWrapper";
 import { storage } from "./services/storage";
 import { syncService } from "./services/sync";
 import { DrawingData, DrawingMeta, SyncConfig, SyncStatusState } from "./types";
@@ -28,6 +28,7 @@ export const App: React.FC = () => {
   const saveTimeoutRef = useRef<any>(null);
   const syncTimeoutRef = useRef<any>(null);
   const excalidrawRef = useRef<any>(null);
+  const insertImagesRef = useRef<InsertImagesFn | null>(null);
 
   // Keep refs synchronized
   useEffect(() => {
@@ -52,13 +53,36 @@ export const App: React.FC = () => {
     setSyncMessage("Synchronizing with Cloudflare...");
 
     try {
-      if (activeDrawingRef.current) {
+      if (activeDrawingRef.current && activeDrawingRef.current.updatedAt > 0) {
         await storage.saveDrawing(activeDrawingRef.current);
       }
 
       const res = await syncService.syncAll(cfg);
       const updatedList = await storage.getDrawingsList();
       setDrawingsList(updatedList);
+
+      // Refresh active drawing if updated from cloud
+      const currentActive = activeDrawingRef.current;
+      if (currentActive) {
+        const refreshed = await storage.getDrawing(currentActive.id);
+        if (refreshed && refreshed.updatedAt > currentActive.updatedAt) {
+          setActiveDrawing(refreshed);
+          activeDrawingRef.current = refreshed;
+          setActiveTitle(refreshed.title);
+          if (excalidrawRef.current) {
+            excalidrawRef.current.updateScene({
+              elements: refreshed.content?.elements || [],
+              appState: {
+                ...refreshed.content?.appState,
+                collaborators: new Map(),
+              },
+            });
+            if (refreshed.files) {
+              excalidrawRef.current.addFiles(Object.values(refreshed.files));
+            }
+          }
+        }
+      }
 
       setSyncStatus("synced");
       setSyncMessage(
@@ -85,16 +109,39 @@ export const App: React.FC = () => {
           setSyncStatus("idle");
         }
 
-        const drawing = await storage.initializeDefaults();
+        // 1. Initial sync with cloud if configured, to fetch remote drawings before defaults
+        if (config.workerUrl && config.autoSync) {
+          setSyncStatus("syncing");
+          setSyncMessage("Checking Cloudflare for drawings...");
+          try {
+            await syncService.syncAll(config);
+          } catch (e: any) {
+            console.warn("Initial sync error:", e);
+          }
+        }
+
+        // 2. Load drawings list
+        let list = await storage.getDrawingsList();
+
+        // 3. Determine active drawing
+        let drawing: DrawingData;
+        if (list.length > 0) {
+          const activeId = await storage.getActiveDrawingId();
+          const targetId = activeId && list.some((d) => d.id === activeId) ? activeId : list[0].id;
+          drawing = (await storage.getDrawing(targetId)) || (await storage.initializeDefaults());
+        } else {
+          drawing = await storage.initializeDefaults();
+          list = await storage.getDrawingsList();
+        }
+
         setActiveDrawing(drawing);
         activeDrawingRef.current = drawing;
         setActiveTitle(drawing.title);
-
-        const list = await storage.getDrawingsList();
         setDrawingsList(list);
 
-        if (config.workerUrl && config.autoSync) {
-          triggerSync(config);
+        if (config.workerUrl) {
+          setSyncStatus("synced");
+          setSyncMessage("Everything is up to date");
         }
       } catch (err) {
         console.error("Initialization error:", err);
@@ -104,7 +151,7 @@ export const App: React.FC = () => {
     };
 
     init();
-  }, [triggerSync]);
+  }, []);
 
   // Canvas Change Handler (Debounced auto-save & sync - STABLE, NO STATE RE-RENDER LOOP)
   const handleCanvasChange = useCallback(
@@ -305,6 +352,45 @@ export const App: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
+  // Import .excalidraw file
+  const handleImportDrawing = async (file: File) => {
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const newId = `drawing-${Date.now()}`;
+      const title = file.name.replace(/\.excalidraw$/i, "").replace(/\.json$/i, "") || "Imported Drawing";
+
+      const newDrawing: DrawingData = {
+        id: newId,
+        title,
+        content: {
+          elements: Array.isArray(data.elements) ? data.elements : [],
+          appState: data.appState || { viewBackgroundColor: "#ffffff" },
+        },
+        files: data.files || {},
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      await storage.saveDrawing(newDrawing);
+      await storage.setActiveDrawingId(newId);
+      setActiveDrawing(newDrawing);
+      activeDrawingRef.current = newDrawing;
+      setActiveTitle(newDrawing.title);
+
+      const list = await storage.getDrawingsList();
+      setDrawingsList(list);
+
+      const currentCfg = syncConfigRef.current;
+      if (currentCfg.workerUrl && currentCfg.autoSync) {
+        syncService.uploadDrawing(currentCfg, newDrawing).catch(console.error);
+      }
+    } catch (err: any) {
+      console.error("Failed to import drawing:", err);
+      alert("Failed to parse .excalidraw file: " + (err.message || "Invalid file"));
+    }
+  };
+
   // Save Settings
   const handleSaveSettings = async (newConfig: SyncConfig) => {
     setSyncConfig(newConfig);
@@ -338,6 +424,7 @@ export const App: React.FC = () => {
         onTriggerSync={() => triggerSync()}
         syncStatus={syncStatus}
         syncMessage={syncMessage}
+        onInsertImages={(files, quality) => insertImagesRef.current?.(files, quality)}
       />
 
       {/* Main Drawing Canvas */}
@@ -347,6 +434,7 @@ export const App: React.FC = () => {
           drawing={activeDrawing}
           onChange={handleCanvasChange}
           excalidrawRef={excalidrawRef}
+          insertImagesRef={insertImagesRef}
         />
       </main>
 
@@ -358,6 +446,7 @@ export const App: React.FC = () => {
         activeId={activeDrawing.id}
         onSelectDrawing={handleSelectDrawing}
         onNewDrawing={handleNewDrawing}
+        onImportDrawing={handleImportDrawing}
         onRenameDrawing={handleRenameDrawing}
         onDuplicateDrawing={handleDuplicateDrawing}
         onDeleteDrawing={handleDeleteDrawing}

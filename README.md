@@ -8,6 +8,7 @@ Aplicación de escritorio multiplataforma rápida y ligera basada en **Excalidra
 
 - 🎨 **Excalidraw completo:** Dibujo libre, flechas inteligentes, formas geométricas, texto, e imágenes incrustadas.
 - ⚡ **Rendimiento Nativo en Rust:** Bajo consumo de memoria (~20 MB vs 300+ MB de Electron).
+- 🖼️ **Imágenes optimizadas al pegar/soltar:** se convierten a WebP 1600 px (calidad tipo WhatsApp, ~10× más livianas). `Ctrl+Shift+V` o `Shift`+soltar = original; menú **Image** para insertar en Standard / HD / Original y cambiar el predeterminado.
 - 📁 **Gestor de Múltiples Dibujos:** Panel lateral para cambiar de dibujo en 1 clic, crear nuevos, renombrar, duplicar, buscar y exportar archivos `.excalidraw`.
 - ☁️ **Sincronización Automática con Cloudflare:**
   - **D1 (Base de datos SQL):** Guarda el estado vectorial, títulos, fechas y versiones.
@@ -48,7 +49,7 @@ Sigue estos pasos en tu computadora con Windows para compilar y ejecutar la apli
    npm run tauri build
    ```
    Una vez terminada la compilación, encontrarás el instalador listo en:
-   📁 `app\src-tauri\target\release\bundle\msi\Excalidraw Desktop_1.0.0_x64_en-US.msi` (o en `bundle\nsis\*.exe`).
+   📁 `C:\rust-target\tauri\release\bundle\msi\Excalidraw Desktop_1.0.0_x64_en-US.msi` (o en `bundle\nsis\*.exe`).
 
    Haz doble clic sobre el instalador para instalarlo en Windows.
 

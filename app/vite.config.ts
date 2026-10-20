@@ -12,6 +12,9 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     host: true,
+    watch: {
+      ignored: ["**/src-tauri/**"],
+    },
   },
   build: {
     target: ["es2021", "chrome100", "safari13"],
