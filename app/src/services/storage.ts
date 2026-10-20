@@ -5,6 +5,7 @@ const DRAWING_PREFIX = "draw_content_";
 const METADATA_KEY = "draw_metadata_list";
 const CONFIG_KEY = "draw_sync_config";
 const ACTIVE_ID_KEY = "draw_active_id";
+const UPLOADED_ASSETS_PREFIX = "draw_r2_uploaded_";
 
 export const storage = {
   // Sync Configuration
@@ -30,6 +31,16 @@ export const storage = {
 
   async setActiveDrawingId(id: string): Promise<void> {
     await set(ACTIVE_ID_KEY, id);
+  },
+
+  // File ids already stored in R2, per worker URL (avoids re-uploading images on every save)
+  async getUploadedAssets(workerUrl: string): Promise<Set<string>> {
+    const ids = await get<string[]>(`${UPLOADED_ASSETS_PREFIX}${workerUrl}`);
+    return new Set(ids || []);
+  },
+
+  async saveUploadedAssets(workerUrl: string, ids: Set<string>): Promise<void> {
+    await set(`${UPLOADED_ASSETS_PREFIX}${workerUrl}`, Array.from(ids));
   },
 
   // Metadata list of drawings
@@ -137,8 +148,8 @@ export const storage = {
         },
       },
       files: {},
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: 0,
+      updatedAt: 0,
     };
 
     await this.saveDrawing(defaultDrawing);

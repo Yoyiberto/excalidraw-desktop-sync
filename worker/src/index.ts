@@ -172,16 +172,24 @@ app.post("/api/assets/:hash", async (c) => {
     const contentType = c.req.header("Content-Type") || "application/octet-stream";
     const body = await c.req.arrayBuffer();
 
+    if (body.byteLength === 0) {
+      return c.json({ error: "Empty asset body" }, 400);
+    }
+
     await c.env.ASSETS.put(hash, body, {
       httpMetadata: { contentType },
     });
 
-    // Save asset metadata to D1
-    await c.env.DB.prepare(
-      "INSERT OR REPLACE INTO drawing_assets (hash, mime_type, size, created_at) VALUES (?, ?, ?, ?)"
-    )
-      .bind(hash, contentType, body.byteLength, Date.now())
-      .run();
+    // Asset metadata in D1 is informational only; R2 already holds the file
+    try {
+      await c.env.DB.prepare(
+        "INSERT OR REPLACE INTO drawing_assets (hash, mime_type, size, created_at) VALUES (?, ?, ?, ?)"
+      )
+        .bind(hash, contentType, body.byteLength, Date.now())
+        .run();
+    } catch (err) {
+      console.warn("drawing_assets insert failed:", err);
+    }
 
     return c.json({ success: true, hash, size: body.byteLength, mimeType: contentType });
   } catch (err: any) {

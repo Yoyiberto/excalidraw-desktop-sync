@@ -1,6 +1,31 @@
 import { DrawingData, DrawingMeta, SyncConfig } from "../types";
 import { storage } from "./storage";
 
+// Worker URLs that answered 503 on an asset upload (no R2 bucket bound) during this session;
+// drawings synced to them keep their dataURLs inline in files_json like before.
+const r2Unavailable = new Set<string>();
+
+function dataURLToBlob(dataURL: string): Blob {
+  const [header, data] = dataURL.split(",", 2);
+  const mimeType = header.match(/^data:([^;,]+)/)?.[1] || "application/octet-stream";
+  if (!header.includes(";base64")) {
+    return new Blob([decodeURIComponent(data)], { type: mimeType });
+  }
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mimeType });
+}
+
+function blobToDataURL(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
 export const syncService = {
   getHeaders(config: SyncConfig): HeadersInit {
     const headers: Record<string, string> = {
@@ -48,7 +73,7 @@ export const syncService = {
       body: JSON.stringify({
         title: drawing.title,
         content: drawing.content,
-        files: drawing.files,
+        files: await this.uploadFiles(config, drawing.files || {}),
         updatedAt: drawing.updatedAt,
       }),
     });
@@ -57,6 +82,93 @@ export const syncService = {
       const errorText = await res.text();
       throw new Error(`Upload failed: ${res.status} - ${errorText}`);
     }
+  },
+
+  // Uploads to R2 the files it doesn't have yet and returns the files map for D1 without dataURLs.
+  // Falls back to the full map (dataURLs inline) when the worker has no R2 bucket.
+  async uploadFiles(config: SyncConfig, files: Record<string, any>): Promise<Record<string, any>> {
+    const entries = Object.entries(files);
+    const baseUrl = this.cleanUrl(config.workerUrl);
+    if (entries.length === 0 || r2Unavailable.has(baseUrl)) return files;
+
+    const uploaded = await storage.getUploadedAssets(baseUrl);
+    let changed = false;
+    try {
+      for (const [id, file] of entries) {
+        if (!file?.dataURL || uploaded.has(id)) continue;
+        const blob = dataURLToBlob(file.dataURL);
+        const headers = this.getHeaders(config) as Record<string, string>;
+        headers["Content-Type"] = file.mimeType || blob.type;
+        const res = await fetch(`${baseUrl}/api/assets/${encodeURIComponent(id)}`, {
+          method: "POST",
+          headers,
+          body: blob,
+        });
+        if (res.status === 503) {
+          r2Unavailable.add(baseUrl);
+          return files;
+        }
+        if (!res.ok) {
+          throw new Error(`Asset upload failed: ${res.status} - ${await res.text()}`);
+        }
+        uploaded.add(id);
+        changed = true;
+      }
+    } finally {
+      if (changed) await storage.saveUploadedAssets(baseUrl, uploaded);
+    }
+
+    const meta: Record<string, any> = {};
+    for (const [id, file] of entries) {
+      const { dataURL: _dataURL, ...rest } = file || {};
+      meta[id] = rest;
+    }
+    return meta;
+  },
+
+  // Fills in dataURLs for files that came from D1 as metadata only: reuses the local copy
+  // when there is one, otherwise downloads the asset from R2.
+  async downloadMissingFiles(
+    config: SyncConfig,
+    id: string,
+    remoteFiles: Record<string, any>
+  ): Promise<Record<string, any>> {
+    const baseUrl = this.cleanUrl(config.workerUrl);
+    const localFiles = (await storage.getDrawing(id))?.files || {};
+    const uploaded = await storage.getUploadedAssets(baseUrl);
+    let changed = false;
+    const result: Record<string, any> = {};
+
+    for (const [fileId, file] of Object.entries(remoteFiles)) {
+      if (file?.dataURL) {
+        result[fileId] = file;
+        continue;
+      }
+      const local = localFiles[fileId];
+      if (local?.dataURL) {
+        result[fileId] = { ...local, ...file, dataURL: local.dataURL };
+        continue;
+      }
+      try {
+        const res = await fetch(`${baseUrl}/api/assets/${encodeURIComponent(fileId)}`, {
+          headers: this.getHeaders(config),
+        });
+        if (!res.ok) {
+          console.warn(`Asset ${fileId} unavailable: status ${res.status}`);
+          continue;
+        }
+        const blob = await res.blob();
+        const typed = file?.mimeType && blob.type !== file.mimeType ? new Blob([blob], { type: file.mimeType }) : blob;
+        result[fileId] = { ...file, id: fileId, mimeType: typed.type, dataURL: await blobToDataURL(typed) };
+        uploaded.add(fileId);
+        changed = true;
+      } catch (err) {
+        console.warn(`Asset ${fileId} download failed:`, err);
+      }
+    }
+
+    if (changed) await storage.saveUploadedAssets(baseUrl, uploaded);
+    return result;
   },
 
   async fetchRemoteDrawing(config: SyncConfig, id: string): Promise<DrawingData> {
@@ -74,7 +186,7 @@ export const syncService = {
       id: data.id,
       title: data.title,
       content: data.content,
-      files: data.files || {},
+      files: await this.downloadMissingFiles(config, id, data.files || {}),
       createdAt: data.createdAt || Date.now(),
       updatedAt: data.updatedAt || Date.now(),
     };
@@ -145,6 +257,10 @@ export const syncService = {
 
     // 2. Upload drawings that exist only locally
     for (const [_, localMeta] of localMap) {
+      // Do not upload untouched default welcome template
+      if (localMeta.updated_at === 0 && localMeta.id === "welcome-board") {
+        continue;
+      }
       const localDrawing = await storage.getDrawing(localMeta.id);
       if (localDrawing) {
         await this.uploadDrawing(config, localDrawing);

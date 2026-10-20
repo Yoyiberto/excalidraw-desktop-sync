@@ -52,6 +52,27 @@ class MockD1PreparedStatement {
   }
 }
 
+class MockR2Bucket {
+  public objects = new Map<string, { body: ArrayBuffer; contentType?: string }>();
+
+  async put(key: string, body: ArrayBuffer, opts?: { httpMetadata?: { contentType?: string } }) {
+    this.objects.set(key, { body, contentType: opts?.httpMetadata?.contentType });
+    return {};
+  }
+
+  async get(key: string) {
+    const obj = this.objects.get(key);
+    if (!obj) return null;
+    return {
+      body: obj.body,
+      httpEtag: `"${key}"`,
+      writeHttpMetadata(headers: Headers) {
+        if (obj.contentType) headers.set("Content-Type", obj.contentType);
+      },
+    };
+  }
+}
+
 class MockD1Database {
   public storage = new Map<string, any>();
 
@@ -158,5 +179,89 @@ describe("Cloudflare Sync Worker API", () => {
       authEnv
     );
     expect(authorizedRes.status).toBe(200);
+  });
+
+  describe("R2 assets", () => {
+    const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
+
+    it("returns 503 when the R2 bucket is not bound", async () => {
+      const res = await app.request(
+        "/api/assets/abc123",
+        { method: "POST", headers: { "Content-Type": "image/png" }, body: pngBytes },
+        env
+      );
+      expect(res.status).toBe(503);
+      const getRes = await app.request("/api/assets/abc123", {}, env);
+      expect(getRes.status).toBe(503);
+    });
+
+    it("uploads an asset and downloads the same bytes", async () => {
+      const bucket = new MockR2Bucket();
+      const r2Env = { ...env, ASSETS: bucket as any };
+
+      const upRes = await app.request(
+        "/api/assets/abc123",
+        { method: "POST", headers: { "Content-Type": "image/png" }, body: pngBytes },
+        r2Env
+      );
+      expect(upRes.status).toBe(200);
+      const upBody = (await upRes.json()) as any;
+      expect(upBody).toMatchObject({ success: true, hash: "abc123", size: pngBytes.length, mimeType: "image/png" });
+      expect(bucket.objects.has("abc123")).toBe(true);
+
+      const getRes = await app.request("/api/assets/abc123", {}, r2Env);
+      expect(getRes.status).toBe(200);
+      expect(getRes.headers.get("Content-Type")).toBe("image/png");
+      expect(getRes.headers.get("Cache-Control")).toContain("immutable");
+      expect(new Uint8Array(await getRes.arrayBuffer())).toEqual(pngBytes);
+    });
+
+    it("returns 404 for a missing asset", async () => {
+      const r2Env = { ...env, ASSETS: new MockR2Bucket() as any };
+      const res = await app.request("/api/assets/missing", {}, r2Env);
+      expect(res.status).toBe(404);
+    });
+
+    it("rejects an empty upload", async () => {
+      const r2Env = { ...env, ASSETS: new MockR2Bucket() as any };
+      const res = await app.request("/api/assets/empty", { method: "POST", body: new Uint8Array() }, r2Env);
+      expect(res.status).toBe(400);
+    });
+
+    it("still stores the asset if the drawing_assets insert fails", async () => {
+      const bucket = new MockR2Bucket();
+      const failingDb = {
+        prepare: () => ({ bind: () => ({ run: async () => { throw new Error("no such table: drawing_assets"); } }) }),
+      };
+      const res = await app.request(
+        "/api/assets/def456",
+        { method: "POST", headers: { "Content-Type": "image/webp" }, body: pngBytes },
+        { ...env, DB: failingDb as any, ASSETS: bucket as any }
+      );
+      expect(res.status).toBe(200);
+      expect(bucket.objects.get("def456")?.contentType).toBe("image/webp");
+    });
+
+    it("requires auth for assets when AUTH_KEY is set", async () => {
+      const r2Env = { ...env, AUTH_KEY: "secret-token-123", ASSETS: new MockR2Bucket() as any };
+      const res = await app.request("/api/assets/abc123", {}, r2Env);
+      expect(res.status).toBe(401);
+    });
+  });
+
+  it("stores metadata-only files_json without dataURLs", async () => {
+    const files = { abc123: { id: "abc123", mimeType: "image/png", created: 1 } };
+    await app.request(
+      "/api/drawings/img-1",
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Img", content: { elements: [] }, files, updatedAt: 5 }),
+      },
+      env
+    );
+    const res = await app.request("/api/drawings/img-1", {}, env);
+    const body = (await res.json()) as any;
+    expect(body.files).toEqual(files);
   });
 });

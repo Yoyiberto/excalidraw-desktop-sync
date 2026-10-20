@@ -11,6 +11,12 @@
       "database_id": "06463a1f-697e-4912-8402-8b96bc8470dd"
     }
   ],
+  "r2_buckets": [
+    {
+      "binding": "ASSETS",
+      "bucket_name": "draw-assets"
+    }
+  ],
   "vars": {
     "AUTH_KEY": ""
   }
